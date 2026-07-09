@@ -56,6 +56,7 @@ function Get-ZhTitle {
     switch ($Id) {
         "CONFIG_NOT_FOUND" { return "未找到 Codex config.toml" }
         "CONFIG_OPENAI_RESPONSES_PROVIDER" { return "当前 provider 路由到了公开 OpenAI Responses API" }
+        "CONFIG_OPENAI_BASE_URL_OVERRIDE" { return "检测到顶层 openai_base_url 覆盖" }
         "CONFIG_NO_OPENAI_RESPONSES_PROVIDER_MISMATCH" { return "未检测到已选中的 OpenAI Responses 自定义 provider 配置不匹配" }
         "AUTH_NOT_FOUND" { return "未找到 Codex auth.json" }
         "AUTH_SCOPE_SKIPPED" { return "已跳过 auth scope 检查" }
@@ -65,6 +66,7 @@ function Get-ZhTitle {
         "AUTH_SCOPE_HAS_RESPONSES_WRITE" { return "认证 payload 包含 api.responses.write" }
         "AUTH_SCOPE_MISSING_RESPONSES_WRITE" { return "认证 payload 不包含 api.responses.write" }
         "LIKELY_ROOT_CAUSE_SCOPE_MISMATCH" { return "可能根因：ChatGPT OAuth 被路由到公开 Responses API，但缺少 api.responses.write" }
+        "LIKELY_ROOT_CAUSE_OPENAI_BASE_URL_SCOPE_MISMATCH" { return "可能根因：openai_base_url 把 ChatGPT OAuth 路由到公开 OpenAI API" }
         "ENV_OVERRIDES_PRESENT" { return "检测到 OpenAI/Codex/代理环境变量" }
         "ENV_OVERRIDES_NOT_FOUND" { return "当前进程未发现明显的 OpenAI/Codex/代理环境变量覆盖" }
         "LOG_DB_NOT_FOUND" { return "未找到 Codex logs_2.sqlite" }
@@ -94,6 +96,7 @@ function Get-ZhRecommendation {
     switch ($Id) {
         "CONFIG_NOT_FOUND" { return "安装或登录 Codex，或用 -CodexHome 指定正确目录。" }
         "CONFIG_OPENAI_RESPONSES_PROVIDER" { return "如果使用 ChatGPT 登录态，这可能触发 Missing scopes: api.responses.write。请删除该 provider，或改用正确的 API-key 认证/provider 配置。" }
+        "CONFIG_OPENAI_BASE_URL_OVERRIDE" { return "如果使用 ChatGPT 登录态，请删除 openai_base_url；它会把请求导向公开 OpenAI API，从而触发 api.responses.write scope 错误。" }
         "AUTH_NOT_FOUND" { return "如果预期使用 ChatGPT 登录态，请重新登录 Codex。" }
         "AUTH_SCOPE_SKIPPED" { return "使用 -AllowReadAuth 可检查 scope。" }
         "ACCESS_TOKEN_NOT_FOUND" { return "请退出并重新登录 Codex。" }
@@ -101,6 +104,7 @@ function Get-ZhRecommendation {
         "AUTH_SCOPE_READ_FAILED" { return "检查 auth.json 格式，或重新登录。" }
         "AUTH_SCOPE_MISSING_RESPONSES_WRITE" { return "这对很多 ChatGPT OAuth token 是正常的；但如果 provider 调用 https://api.openai.com/v1/responses，就会冲突。" }
         "LIKELY_ROOT_CAUSE_SCOPE_MISMATCH" { return "确认提示后运行 -FixConfig，或手动删除危险 provider。" }
+        "LIKELY_ROOT_CAUSE_OPENAI_BASE_URL_SCOPE_MISMATCH" { return "确认提示后运行 -FixConfig，或手动删除 openai_base_url。" }
         "ENV_OVERRIDES_PRESENT" { return "这些变量可能覆盖 ChatGPT OAuth 或影响传输；请确认它们是有意设置的。" }
         "LOG_DB_NOT_FOUND" { return "未执行本地日志扫描。" }
         "LOG_SCAN_SKIPPED" { return "使用 -AllowReadLogs 可分类最近的 401 日志。" }
@@ -265,6 +269,20 @@ function Test-DangerousResponsesProvider {
         }
     }
     return $danger.ToArray()
+}
+
+function Test-OpenAIBaseUrlOverride {
+    param([object]$Config)
+    if ($null -eq $Config) { return $null }
+    if (-not $Config.root.ContainsKey("openai_base_url")) { return $null }
+
+    $value = [string]$Config.root["openai_base_url"]
+    $normalized = $value.TrimEnd("/")
+    return [pscustomobject]@{
+        key = "openai_base_url"
+        value = $value
+        is_public_openai_api = ($normalized -ieq "https://api.openai.com/v1")
+    }
 }
 
 function ConvertFrom-Base64UrlJson {
@@ -576,8 +594,38 @@ function Remove-DangerousProviderFromConfig {
     $Script:ActionsTaken.Add("Removed selected dangerous provider '$ProviderName' from config.toml") | Out-Null
 }
 
+function Remove-OpenAIBaseUrlOverrideFromConfig {
+    param([object]$Config)
+    if ($null -eq $Config) { return }
+    $allowed = Request-Consent "Edit config.toml" "This will backup config.toml and remove the root openai_base_url entry if present.`nPath: $($Config.path)"
+    if (-not $allowed) {
+        Add-Finding "FIX_CONFIG_SKIPPED" "Info" "Config fix skipped" "User did not authorize editing config.toml." ""
+        return
+    }
+
+    $backup = "$($Config.path).bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    Copy-Item -LiteralPath $Config.path -Destination $backup
+    $out = New-Object System.Collections.Generic.List[string]
+    $section = ""
+    foreach ($line in $Config.lines) {
+        $trim = $line.Trim()
+        if ($trim -match '^\[(.+)\]\s*$') {
+            $section = $Matches[1]
+            $out.Add($line) | Out-Null
+            continue
+        }
+        if ($section -eq "" -and $trim -match '^openai_base_url\s*=') {
+            continue
+        }
+        $out.Add($line) | Out-Null
+    }
+    Set-Content -LiteralPath $Config.path -Value $out -Encoding UTF8
+    $Script:ActionsTaken.Add("Backed up config.toml to $backup") | Out-Null
+    $Script:ActionsTaken.Add("Removed root openai_base_url from config.toml") | Out-Null
+}
+
 function Test-EnvOverrides {
-    $vars = @("OPENAI_API_KEY","CODEX_API_KEY","OPENAI_ORGANIZATION","OPENAI_PROJECT","OPENAI_PROJECT_ID","CODEX_ACCESS_TOKEN","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY")
+    $vars = @("OPENAI_API_KEY","OPENAI_BASE_URL","OPENAI_API_BASE","OPENAI_API_BASE_URL","CODEX_API_KEY","OPENAI_ORGANIZATION","OPENAI_PROJECT","OPENAI_PROJECT_ID","CODEX_ACCESS_TOKEN","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY")
     $present = New-Object System.Collections.Generic.List[string]
     foreach ($v in $vars) {
         $value = [Environment]::GetEnvironmentVariable($v, "Process")
@@ -701,12 +749,19 @@ function Main {
 
     $config = Read-CodexConfig $configPath
     $dangerProviders = @(Test-DangerousResponsesProvider $config)
+    $baseUrlOverride = Test-OpenAIBaseUrlOverride $config
 
     if ($config) {
         $selectedProvider = if ($config.root.ContainsKey("model_provider")) { [string]$config.root["model_provider"] } else { $null }
         $Script:Summary["model"] = if ($config.root.ContainsKey("model")) { $config.root["model"] } else { $null }
         $Script:Summary["model_provider"] = $selectedProvider
-        if ($dangerProviders.Count -eq 0) {
+        $Script:Summary["openai_base_url"] = if ($baseUrlOverride) { $baseUrlOverride.value } else { $null }
+        if ($baseUrlOverride) {
+            $sev = if ($baseUrlOverride.is_public_openai_api) { "High" } else { "Medium" }
+            $title = if ($baseUrlOverride.is_public_openai_api) { "openai_base_url routes to the public OpenAI API" } else { "Custom root openai_base_url is configured" }
+            Add-Finding "CONFIG_OPENAI_BASE_URL_OVERRIDE" $sev $title "$($baseUrlOverride.key)=$($baseUrlOverride.value)" "If using ChatGPT sign-in auth, remove openai_base_url or use the matching API-key auth mode." $baseUrlOverride.is_public_openai_api
+        }
+        if ($dangerProviders.Count -eq 0 -and -not ($baseUrlOverride -and $baseUrlOverride.is_public_openai_api)) {
             Add-Finding "CONFIG_NO_OPENAI_RESPONSES_PROVIDER_MISMATCH" "Info" "No selected OpenAI Responses custom provider mismatch detected" "" ""
         } else {
             foreach ($p in $dangerProviders) {
@@ -733,6 +788,9 @@ function Main {
         if ($selectedDanger -and -not $authInfo.has_api_responses_write) {
             Add-Finding "LIKELY_ROOT_CAUSE_SCOPE_MISMATCH" "Critical" "Likely root cause: ChatGPT OAuth routed to public Responses API without api.responses.write" "Selected provider '$($selectedDanger.name)' uses https://api.openai.com/v1 + responses; auth payload lacks api.responses.write." "Run with -FixConfig after reviewing the prompt, or remove the provider manually." $true
         }
+        if ($baseUrlOverride -and $baseUrlOverride.is_public_openai_api -and -not $authInfo.has_api_responses_write) {
+            Add-Finding "LIKELY_ROOT_CAUSE_OPENAI_BASE_URL_SCOPE_MISMATCH" "Critical" "Likely root cause: root openai_base_url sends ChatGPT OAuth to the public OpenAI API" "openai_base_url=$($baseUrlOverride.value); auth payload lacks api.responses.write." "Run with -FixConfig after reviewing the prompt, or remove openai_base_url manually." $true
+        }
     }
 
     $logResult = Invoke-LogScan $logsPath $LogHours
@@ -741,11 +799,20 @@ function Main {
 
     $shouldFixConfig = $FixConfig -or $Fix
     if ($shouldFixConfig) {
+        $fixedAnyConfig = $false
         $selectedDanger = @($dangerProviders | Where-Object { $_.selected }) | Select-Object -First 1
         if ($selectedDanger) {
             Remove-DangerousProviderFromConfig $config $selectedDanger.name
-        } else {
-            Add-Finding "FIX_CONFIG_NOT_APPLICABLE" "Info" "No selected dangerous provider found for config repair" "" ""
+            $fixedAnyConfig = $true
+            $config = Read-CodexConfig $configPath
+            $baseUrlOverride = Test-OpenAIBaseUrlOverride $config
+        }
+        if ($baseUrlOverride -and $baseUrlOverride.is_public_openai_api) {
+            Remove-OpenAIBaseUrlOverrideFromConfig $config
+            $fixedAnyConfig = $true
+        }
+        if (-not $fixedAnyConfig) {
+            Add-Finding "FIX_CONFIG_NOT_APPLICABLE" "Info" "No selected dangerous provider or public openai_base_url found for config repair" "" ""
         }
     }
 
