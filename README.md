@@ -11,9 +11,10 @@ Local Windows PowerShell doctor for diagnosing common Codex / ChatGPT / GPT `401
 | Type | Signal | Likely cause |
 |---|---|---|
 | `OPENAI_RESPONSES_SCOPE_MISMATCH` | `api.responses.write`, `https://api.openai.com/v1/responses` | ChatGPT OAuth credentials were routed to the public OpenAI Responses API |
+| `OPENAI_BASE_URL_OVERRIDE` | root `openai_base_url = "https://api.openai.com/v1"` | ChatGPT OAuth credentials were forced onto the public OpenAI API path |
 | `CHATGPT_BACKEND_UNAUTHORIZED` | `chatgpt.com/backend-api/codex/responses` + 401 | ChatGPT login, entitlement, workspace, SSO, or backend authorization mismatch |
 | `MISSING_AUTH_HEADER` | `Missing bearer or basic authentication` | Request was sent without the expected Authorization header |
-| `ENV_OVERRIDES_PRESENT` | `OPENAI_API_KEY`, `CODEX_API_KEY`, proxy env vars | Environment variables may override ChatGPT OAuth or affect transport |
+| `ENV_OVERRIDES_PRESENT` | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `CODEX_API_KEY`, proxy env vars | Environment variables may override ChatGPT OAuth or affect transport |
 | `CUSTOM_PROVIDER_401` | Third-party provider domain + 401 | Custom provider base URL, key, header, region, or deployment mismatch |
 | `TOKEN_REFRESH_OR_EXPIRED` | refresh/expired/invalid token messages | Local auth state or token refresh problem |
 | `TRANSPORT_RECONNECT_OR_FALLBACK` | websocket disconnect, stream reconnect, HTTP fallback | Network/proxy/transport instability, not always auth |
@@ -84,6 +85,7 @@ powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -CodexHome "C:\U
 
 The script can repair local, deterministic issues:
 
+- remove a root `openai_base_url = "https://api.openai.com/v1"` override that conflicts with ChatGPT OAuth.
 - remove a selected dangerous custom provider such as:
 
 ```toml
@@ -110,9 +112,10 @@ It does not repair server-side account entitlement, SSO workspace access, subscr
 | 类型 | 典型信号 | 常见原因 |
 |---|---|---|
 | ChatGPT 登录态被路由到公开 Responses API | `api.responses.write`、`https://api.openai.com/v1/responses` | `config.toml` 选中了自定义 provider，导致 ChatGPT OAuth token 去调用公开 OpenAI API |
+| 顶层 openai_base_url 覆盖 | `openai_base_url = "https://api.openai.com/v1"` | ChatGPT OAuth token 被强制打到公开 OpenAI API 路径 |
 | ChatGPT backend 未授权 | `chatgpt.com/backend-api/codex/responses` + 401 | 登录态、账号 entitlement、workspace、SSO 或服务端授权不一致 |
 | 请求没带认证头 | `Missing bearer or basic authentication` | Authorization header 丢失、凭证没加载、fallback 请求异常 |
-| 环境变量覆盖 | `OPENAI_API_KEY`、`CODEX_API_KEY`、代理变量存在 | API key 或代理影响 Codex 默认认证/传输 |
+| 环境变量覆盖 | `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`CODEX_API_KEY`、代理变量存在 | API key、base URL 或代理影响 Codex 默认认证/传输 |
 | 自定义 provider 401 | OpenRouter、Azure、Vercel、Anthropic 等 provider 返回 401 | key、base_url、header、region、deployment 配置错误 |
 | token 刷新/过期 | `invalid_token`、`expired`、`refresh token` | `auth.json` 或刷新流程异常 |
 | websocket/stream 反复重连 | `responses_websocket`、`stream disconnected`、`falling back to HTTP` | 网络、代理、传输层不稳定，不一定是认证问题 |
@@ -154,9 +157,11 @@ powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -RebuildIndex
 
 ```text
 ChatGPT 登录态 / OAuth token
-  + config.toml 选中了自定义 provider
-  + base_url = "https://api.openai.com/v1"
-  + wire_api = "responses"
+  + config.toml 选中了自定义 provider:
+      base_url = "https://api.openai.com/v1"
+      wire_api = "responses"
+    或设置了:
+      openai_base_url = "https://api.openai.com/v1"
   -> 请求打到公开 OpenAI Responses API
   -> token 没有 api.responses.write scope
   -> 401 Unauthorized
