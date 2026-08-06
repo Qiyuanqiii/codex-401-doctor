@@ -141,7 +141,7 @@ powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -AllowReadAuth -
 powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -AllowReadAuth -AllowReadLogs -Language both
 ```
 
-只修复危险 provider 配置：
+只会修复危险 provider 配置：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -FixConfig
