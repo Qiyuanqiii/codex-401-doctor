@@ -105,7 +105,7 @@ It does not repair server-side account entitlement, SSO workspace access, subscr
 
 `codex-401-doctor` 是一个用于排查 Codex / ChatGPT / GPT 相关 `401 Unauthorized` 问题的本地 Windows PowerShell 工具。
 
-默认只诊断，不修改文件。脚本不会打印 `access_token`、`refresh_token`、cookie 或完整 request ID。读取敏感文件、修改配置、重建索引前，都需要传参授权或在提示中输入 `YES`。
+默认只会进行诊断，不去修改文件。脚本不会打印 `access_token`、`refresh_token`、cookie 或完整 request ID。读取敏感文件、修改配置、重建索引前，都需要传参授权或在提示中输入 `YES`。
 
 ## 能识别的问题类型
 
