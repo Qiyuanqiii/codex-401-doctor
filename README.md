@@ -63,6 +63,12 @@ JSON output:
 powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -AllowReadAuth -AllowReadLogs -Json
 ```
 
+Check the script version:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -Version
+```
+
 Fix only the dangerous `api.openai.com/v1` + `wire_api = "responses"` provider mismatch:
 
 ```powershell

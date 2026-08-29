@@ -77,6 +77,12 @@ powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -AllowReadAuth -
 powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -AllowReadAuth -AllowReadLogs -Json
 ```
 
+查看脚本版本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\codex-401-doctor.ps1 -Version
+```
+
 只修复危险 provider 配置：
 
 ```powershell

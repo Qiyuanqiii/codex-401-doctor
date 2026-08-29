@@ -22,15 +22,19 @@ param(
     [switch]$AssumeYes,
     [ValidateSet("en","zh","both")]
     [string]$Language = "both",
-    [switch]$Json
+    [switch]$Json,
+    [switch]$Version
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
+$Script:ToolVersion = "1.1.0"
+
 $Script:Findings = New-Object System.Collections.Generic.List[object]
 $Script:ActionsTaken = New-Object System.Collections.Generic.List[string]
 $Script:Summary = [ordered]@{
+    version = $Script:ToolVersion
     codex_home = $CodexHome
     language = $Language
     config_path = $null
@@ -679,15 +683,15 @@ function Add-LogFindings {
 function Write-HumanReport {
     Write-Host ""
     if ($Language -eq "zh") {
-        Write-Host "codex-401-doctor 诊断报告" -ForegroundColor Cyan
+        Write-Host "codex-401-doctor 诊断报告 (v$Script:ToolVersion)" -ForegroundColor Cyan
         Write-Host "Codex 目录: $CodexHome"
         Write-Host "敏感信息: 不会打印 access_token、refresh_token、cookie 或完整 request ID。"
     } elseif ($Language -eq "both") {
-        Write-Host "codex-401-doctor report / 诊断报告" -ForegroundColor Cyan
+        Write-Host "codex-401-doctor report / 诊断报告 (v$Script:ToolVersion)" -ForegroundColor Cyan
         Write-Host "Codex home / Codex 目录: $CodexHome"
         Write-Host "Secrets / 敏感信息: access_token, refresh_token, cookies, and full request IDs are not printed. / 不会打印 access_token、refresh_token、cookie 或完整 request ID。"
     } else {
-        Write-Host "codex-401-doctor report" -ForegroundColor Cyan
+        Write-Host "codex-401-doctor report (v$Script:ToolVersion)" -ForegroundColor Cyan
         Write-Host "Codex home: $CodexHome"
         Write-Host "Secrets: access_token, refresh_token, cookies, and full request IDs are not printed."
     }
@@ -740,6 +744,10 @@ function Write-HumanReport {
 }
 
 function Main {
+    if ($Version) {
+        Write-Output "codex-401-doctor $Script:ToolVersion"
+        exit 0
+    }
     $configPath = Join-Path $CodexHome "config.toml"
     $authPath = Join-Path $CodexHome "auth.json"
     $logsPath = Join-Path $CodexHome "logs_2.sqlite"
